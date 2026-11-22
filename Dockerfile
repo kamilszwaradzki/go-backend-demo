@@ -3,14 +3,14 @@ FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod ./
-COPY main.go ./
+COPY go.mod go.sum ./
+RUN go mod download
 
-RUN go mod tidy
-RUN go build -o app
+COPY . .
+RUN CGO_ENABLED=0 go build -o app
 
 # Run stage
-FROM alpine:latest
+FROM alpine:3.20
 
 WORKDIR /app
 COPY --from=builder /app/app .
