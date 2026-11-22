@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,13 +53,11 @@ func newRouter() *mux.Router {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Ustaw nagłówki CORS
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 
-		// Obsługa preflight request
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -72,6 +71,22 @@ func sendJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+var validStatuses = map[string]bool{
+	"pending":     true,
+	"in_progress": true,
+	"completed":   true,
+}
+
+func validateTask(t Task) string {
+	if strings.TrimSpace(t.Title) == "" {
+		return "Title is required"
+	}
+	if !validStatuses[t.Status] {
+		return "Status must be one of: pending, in_progress, completed"
+	}
+	return ""
 }
 
 func GetTasks(w http.ResponseWriter, r *http.Request) {
@@ -125,20 +140,17 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if task.Title == "" {
-		sendJSON(w, http.StatusBadRequest, Response{
-			Success: false,
-			Error:   "Title is required",
-		})
+	if task.Status == "" {
+		task.Status = "pending"
+	}
+	if msg := validateTask(task); msg != "" {
+		sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: msg})
 		return
 	}
 
 	now := time.Now()
 	task.CreatedAt = now
 	task.UpdatedAt = now
-	if task.Status == "" {
-		task.Status = "pending"
-	}
 
 	mu.Lock()
 	task.ID = nextID
@@ -173,6 +185,11 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := validateTask(updatedTask); msg != "" {
+		sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: msg})
+		return
+	}
+
 	mu.Lock()
 	var found *Task
 	for i := range tasks {
@@ -181,7 +198,7 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 			tasks[i].Description = updatedTask.Description
 			tasks[i].Status = updatedTask.Status
 			tasks[i].UpdatedAt = time.Now()
-			t := tasks[i] // kopia do wysłania po zdjęciu blokady
+			t := tasks[i]
 			found = &t
 			break
 		}
