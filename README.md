@@ -150,7 +150,8 @@ Content-Type: application/json
 }
 ```
 
-Status options: `pending`, `in_progress`, `completed`
+- `title`: required, cannot be empty or whitespace only
+- `status`: optional, defaults to `pending`; allowed values: `pending`, `in_progress`, `completed`
 
 #### Update Task
 ```http
@@ -180,6 +181,10 @@ Content-Type: application/json
 }
 ```
 
+PUT replaces the task, so both fields are required:
+- `title`: required, cannot be empty or whitespace only
+- `status`: required; allowed values: `pending`, `in_progress`, `completed`
+
 #### Delete Task
 ```http
 DELETE /api/tasks/{id}
@@ -203,19 +208,11 @@ DELETE /api/tasks/{id}
 }
 ```
 
-**400 Bad Request:**
+**400 Bad Request** (invalid ID, malformed JSON or validation error):
 ```json
 {
   "success": false,
-  "error": "Invalid task ID"
-}
-```
-
-**422 Validation Error:**
-```json
-{
-  "success": false,
-  "error": "Title is required"
+  "error": "Status must be one of: pending, in_progress, completed"
 }
 ```
 

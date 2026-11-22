@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// reset czyści stan globalny przed każdym testem
 func reset() {
 	mu.Lock()
 	tasks, nextID = nil, 1
@@ -93,12 +92,11 @@ func TestUpdateTask(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/tasks/1",
-		strings.NewReader(`{"title":"nowy","status":"done"}`)))
+		strings.NewReader(`{"title":"nowy","status":"completed"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT status = %d, chcę 200", rec.Code)
 	}
 
-	// sprawdź, że zmiana NAPRAWDĘ się zapisała
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/1", nil))
 	if !strings.Contains(rec.Body.String(), `"title":"nowy"`) {
@@ -110,7 +108,7 @@ func TestUpdateTaskNotFound(t *testing.T) {
 	reset()
 	rec := httptest.NewRecorder()
 	newRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/tasks/999",
-		strings.NewReader(`{"title":"x"}`)))
+		strings.NewReader(`{"title":"x","status":"pending"}`)))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, chcę 404", rec.Code)
 	}
@@ -125,5 +123,49 @@ func TestDeleteTaskNotFound(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "deleted") {
 		t.Fatalf("podwójna odpowiedź: %s", rec.Body)
+	}
+}
+
+func TestUpdateTaskValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"pusty tytuł", `{"title":"","status":"pending"}`},
+		{"same spacje", `{"title":"   ","status":"pending"}`},
+		{"brak statusu", `{"title":"x"}`},
+		{"zły status", `{"title":"x","status":"done"}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reset()
+			r := newRouter()
+			r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/tasks",
+				strings.NewReader(`{"title":"oryginał"}`)))
+
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/tasks/1",
+				strings.NewReader(tc.body)))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, chcę 400", rec.Code)
+			}
+
+			rec = httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks/1", nil))
+			if !strings.Contains(rec.Body.String(), `"title":"oryginał"`) {
+				t.Fatalf("zadanie zostało zmienione mimo błędu: %s", rec.Body)
+			}
+		})
+	}
+}
+
+func TestCreateTaskInvalidStatus(t *testing.T) {
+	reset()
+	rec := httptest.NewRecorder()
+	newRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/tasks",
+		strings.NewReader(`{"title":"x","status":"done"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, chcę 400", rec.Code)
 	}
 }
