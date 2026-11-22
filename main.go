@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -26,24 +27,27 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-var tasks []Task
-var nextID = 1
+var (
+	mu     sync.RWMutex
+	tasks  []Task
+	nextID = 1
+)
 
 func main() {
-	r := mux.NewRouter()
+	r := newRouter()
+	log.Println("Server starting on :8080...")
+	log.Fatal(http.ListenAndServe(":8080", r))
+}
 
-	// Task routes
+func newRouter() *mux.Router {
+	r := mux.NewRouter()
 	r.HandleFunc("/api/tasks", GetTasks).Methods("GET")
 	r.HandleFunc("/api/tasks", CreateTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}", GetTask).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}", UpdateTask).Methods("PUT")
 	r.HandleFunc("/api/tasks/{id}", DeleteTask).Methods("DELETE")
-
-	// CORS middleware
 	r.Use(corsMiddleware)
-
-	log.Println("Server starting on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	return r
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -71,10 +75,12 @@ func sendJSON(w http.ResponseWriter, status int, data interface{}) {
 }
 
 func GetTasks(w http.ResponseWriter, r *http.Request) {
-	sendJSON(w, http.StatusOK, Response{
-		Success: true,
-		Data:    tasks,
-	})
+	mu.RLock()
+	snapshot := make([]Task, len(tasks))
+	copy(snapshot, tasks)
+	mu.RUnlock()
+
+	sendJSON(w, http.StatusOK, Response{Success: true, Data: snapshot})
 }
 
 func GetTask(w http.ResponseWriter, r *http.Request) {
@@ -88,20 +94,25 @@ func GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, task := range tasks {
-		if task.ID == id {
-			sendJSON(w, http.StatusOK, Response{
-				Success: true,
-				Data:    task,
-			})
-			return
+	mu.RLock()
+	var found *Task
+	for _, t := range tasks {
+		if t.ID == id {
+			t := t
+			found = &t
+			break
 		}
 	}
+	mu.RUnlock()
 
-	sendJSON(w, http.StatusNotFound, Response{
-		Success: false,
-		Error:   "Task not found",
-	})
+	if found == nil {
+		sendJSON(w, http.StatusNotFound, Response{
+			Success: false,
+			Error:   "Task not found",
+		})
+		return
+	}
+	sendJSON(w, http.StatusOK, Response{Success: true, Data: *found})
 }
 
 func CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -122,16 +133,18 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task.ID = nextID
-	nextID++
-	task.CreatedAt = time.Now()
-	task.UpdatedAt = time.Now()
-	
+	now := time.Now()
+	task.CreatedAt = now
+	task.UpdatedAt = now
 	if task.Status == "" {
 		task.Status = "pending"
 	}
 
+	mu.Lock()
+	task.ID = nextID
+	nextID++
 	tasks = append(tasks, task)
+	mu.Unlock()
 
 	sendJSON(w, http.StatusCreated, Response{
 		Success: true,
@@ -160,25 +173,32 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i, task := range tasks {
-		if task.ID == id {
+	mu.Lock()
+	var found *Task
+	for i := range tasks {
+		if tasks[i].ID == id {
 			tasks[i].Title = updatedTask.Title
 			tasks[i].Description = updatedTask.Description
 			tasks[i].Status = updatedTask.Status
 			tasks[i].UpdatedAt = time.Now()
-
-			sendJSON(w, http.StatusOK, Response{
-				Success: true,
-				Message: "Task updated successfully",
-				Data:    tasks[i],
-			})
-			return
+			t := tasks[i] // kopia do wysłania po zdjęciu blokady
+			found = &t
+			break
 		}
 	}
+	mu.Unlock()
 
-	sendJSON(w, http.StatusNotFound, Response{
-		Success: false,
-		Error:   "Task not found",
+	if found == nil {
+		sendJSON(w, http.StatusNotFound, Response{
+			Success: false,
+			Error:   "Task not found",
+		})
+		return
+	}
+	sendJSON(w, http.StatusOK, Response{
+		Success: true,
+		Message: "Task updated successfully",
+		Data:    *found,
 	})
 }
 
@@ -193,19 +213,26 @@ func DeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mu.Lock()
+	var found *Task
 	for i, task := range tasks {
 		if task.ID == id {
+			task := tasks[i]
 			tasks = append(tasks[:i], tasks[i+1:]...)
-			sendJSON(w, http.StatusOK, Response{
-				Success: true,
-				Message: "Task deleted successfully",
-			})
-			return
+			found = &task
+			break
 		}
 	}
-
-	sendJSON(w, http.StatusNotFound, Response{
-		Success: false,
-		Error:   "Task not found",
+	mu.Unlock()
+	if found == nil {
+		sendJSON(w, http.StatusNotFound, Response{
+			Success: false,
+			Error:   "Task not found",
+		})
+		return
+	}
+	sendJSON(w, http.StatusOK, Response{
+		Success: true,
+		Message: "Task deleted successfully",
 	})
 }
