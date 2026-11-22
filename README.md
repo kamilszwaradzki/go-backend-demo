@@ -1,5 +1,6 @@
 # Go Backend Demo
 
+![test](https://github.com/kamilszwaradzki/go-backend-demo/actions/workflows/test.yml/badge.svg)
 ![Go](https://img.shields.io/badge/Go-1.21-00ADD8?logo=go)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -68,9 +69,14 @@ curl http://localhost:8080/api/tasks
 
 ```
 go-backend-demo/
+├── .github/workflows/
+│   └── test.yml      # CI: gofmt, go vet, go test -race
 ├── main.go           # Main application code
+├── main_test.go      # HTTP handler tests (net/http/httptest)
 ├── go.mod            # Go module definition
+├── go.sum            # Dependency checksums
 ├── Dockerfile        # Multi-stage Docker build
+├── LICENSE           # MIT license
 └── README.md         # This file
 ```
 
@@ -216,6 +222,17 @@ DELETE /api/tasks/{id}
 }
 ```
 
+## Testing
+
+```bash
+go test -race -v ./...
+```
+
+Handlers run concurrently (`net/http` serves each request in its own goroutine),
+so shared state is guarded by `sync.RWMutex`. Tests use `net/http/httptest`,
+including a test that fires 50 concurrent POST requests to verify unique IDs.
+The same checks (`gofmt`, `go vet`, `go test -race`) run in GitHub Actions on every push and pull request.
+
 ## Testing with cURL
 
 ### Create a task
@@ -321,13 +338,6 @@ The Dockerfile uses a two-stage build:
 
 This results in a small (~15MB) production image.
 
-### Build Arguments
-```bash
-docker build \
-  --build-arg GO_VERSION=1.21 \
-  -t go-task-api:latest .
-```
-
 ### Run with custom port
 ```bash
 docker run -p 9000:8080 go-task-api
@@ -394,9 +404,7 @@ r.Use(loggingMiddleware)
 ## Performance
 
 - Lightweight: ~15MB Docker image
-- Fast startup: <100ms
-- Low memory footprint: ~10MB RAM
-- Concurrent request handling with goroutines
+- Concurrent request handling with goroutines, shared state guarded by `sync.RWMutex`
 
 ## Limitations
 
@@ -443,20 +451,12 @@ docker build --no-cache -t go-task-api .
 
 ## Related Projects
 
-- [React Frontend Demo](../react-frontend-demo) - React dashboard UI
-- [Laravel Backend Demo](../php-backend-demo) - PHP alternative backend
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+- [React Frontend Demo](https://github.com/kamilszwaradzki/react-frontend-demo) - React dashboard UI
+- [Laravel Backend Demo](https://github.com/kamilszwaradzki/php-backend-demo) - PHP alternative backend
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see [LICENSE](LICENSE).
 
 ## Author
 
